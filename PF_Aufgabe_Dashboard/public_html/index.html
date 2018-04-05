@@ -174,6 +174,7 @@ Creative Commons Namensnennung 4.0 International Lizenz.
                     };
 
                     // TODO: Verbindung herstellen
+                    this.mqttClient.connect(connectOptions);
                 }
 
                 /**
@@ -181,6 +182,7 @@ Creative Commons Namensnennung 4.0 International Lizenz.
                  */
                 disconnect() {
                     // TODO: Verbindung trennen
+                    this.mqttClient.disconnect();
                 }
 
                 /**
@@ -227,6 +229,16 @@ Creative Commons Namensnennung 4.0 International Lizenz.
                     // VEHICLE_READY: this.addVehicle(message) aufrufen
                     // CONNECTION_LIST: this.removeVehicle(message) aufrufen
                     // SENSOR_DATA: this.updateVehicle(message) aufrufen
+                     switch(message.type){
+						case "VEHICLE_READY":
+							this.addVehicle(message);
+							break;
+						case "SENSOR_DATA":
+							this.updateVehicle(message);
+							break;
+						case "CONNECTION_LOST":
+							this.removeVehicle(message);
+					}
                 }
 
                 /**
