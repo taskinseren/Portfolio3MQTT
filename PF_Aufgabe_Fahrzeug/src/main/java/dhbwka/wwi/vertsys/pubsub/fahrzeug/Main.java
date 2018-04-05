@@ -9,10 +9,19 @@
  */
 package dhbwka.wwi.vertsys.pubsub.fahrzeug;
 
+import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Timer;
+import java.util.TimerTask;
+import org.eclipse.paho.client.mqttv3.MqttClient;
+import org.eclipse.paho.client.mqttv3.MqttConnectOptions;
+import org.eclipse.paho.client.mqttv3.MqttException;
+import org.eclipse.paho.client.mqttv3.MqttMessage;
+import org.eclipse.paho.client.mqttv3.persist.MemoryPersistence;
 
 /**
  * Hauptklasse unseres kleinen Progrämmchens.
@@ -26,7 +35,7 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         // Fahrzeug-ID abfragen
-        String vehicleId = Utils.askInput("Beliebige Fahrzeug-ID", "postauto");
+        String vehicleId = Utils.askInput("Beliebige Fahrzeug- ID", "postauto");
 
         // Zu fahrende Strecke abfragen
         File workdir = new File("./waypoints");
@@ -57,22 +66,56 @@ public class Main {
         // LastWill-Nachricht gesendet wird, die auf den Verbindungsabbruch
         // hinweist. Die Nachricht soll eine "StatusMessage" sein, bei der das
         // Feld "type" auf "StatusType.CONNECTION_LOST" gesetzt ist.
-        //
+        StatusMessage lastWill = new StatusMessage();
+		lastWill.type = StatusType.CONNECTION_LOST;
+		lastWill.vehicleId = vehicleId;
+		lastWill.message = "Connection lost";
+        
         // Die Nachricht muss dem MqttConnectOptions-Objekt übergeben werden
         // und soll an das Topic Utils.MQTT_TOPIC_NAME gesendet werden.
+        MqttConnectOptions mco = new MqttConnectOptions();
+		mco.setWill(Utils.MQTT_TOPIC_NAME, lastWill.message.getBytes(), 0, true);
+		mco.setCleanSession(true);
         
         // TODO: Verbindung zum MQTT-Broker herstellen.
-
+        MqttClient client = new MqttClient(mqttAddress, vehicleId, new MemoryPersistence());
+		client.connect();
+		System.out.println("Connected to " + mqttAddress);
+        
         // TODO: Statusmeldung mit "type" = "StatusType.VEHICLE_READY" senden.
         // Die Nachricht soll soll an das Topic Utils.MQTT_TOPIC_NAME gesendet
         // werden.
+        StatusMessage status = new StatusMessage();
+		status.type = StatusType.VEHICLE_READY;
+		status.vehicleId = vehicleId;
+		status.message = "Vehicle ready";
         
         // TODO: Thread starten, der jede Sekunde die aktuellen Sensorwerte
         // des Fahrzeugs ermittelt und verschickt. Die Sensordaten sollen
         // an das Topic Utils.MQTT_TOPIC_NAME + "/" + vehicleId gesendet werden.
+        MqttMessage message = new MqttMessage();
+		message.setPayload(status.toJson());
+		message.setQos(0);
+		client.publish(Utils.MQTT_TOPIC_NAME, message);
+		System.out.println("Sent ready status");
+        
         Vehicle vehicle = new Vehicle(vehicleId, waypoints);
         vehicle.startVehicle();
 
+        Timer timer = new Timer();
+		timer.schedule(new TimerTask() {
+
+			@Override
+			public void run() {
+				try {
+					client.publish(Utils.MQTT_TOPIC_NAME + "/" + vehicleId,
+							new MqttMessage(vehicle.getSensorData().toJson()));
+				} catch (MqttException me) {
+					me.printStackTrace();
+				}
+			}
+		}, 0, 1000);
+                
         // Warten, bis das Programm beendet werden soll
         Utils.fromKeyboard.readLine();
 
@@ -84,6 +127,12 @@ public class Main {
         //
         // Anschließend die Verbindung trennen und den oben gestarteten Thread
         // beenden, falls es kein Daemon-Thread ist.
+        timer.cancel();
+		System.out.println("Vehicle stopped");
+
+		client.publish(Utils.MQTT_TOPIC_NAME, new MqttMessage(lastWill.toJson()));
+		client.disconnect();
+		System.out.println("Disconnected from " + mqttAddress);
     }
 
     /**
@@ -110,8 +159,20 @@ public class Main {
         List<WGS84> waypoints = new ArrayList<>();
 
         // TODO: Übergebene Datei parsen und Liste "waypoints" damit füllen
-
+        BufferedReader br = new BufferedReader(new FileReader(file));
+		String s;
+		while ((s = br.readLine()) != null) {
+			String str[] = s.split("\\|");
+			try {
+				if (str.length >= 2)
+					waypoints.add(new WGS84(Double.parseDouble(str[1]) / 100000, Double.parseDouble(str[0]) / 100000));
+			} catch (NumberFormatException nfe) {
+				nfe.printStackTrace();
+			}
+		}
+                
         return waypoints;
     }
 
 }
+
